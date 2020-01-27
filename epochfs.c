@@ -25,7 +25,7 @@ SOFTWARE.
 */
 
 #define FUSE_USE_VERSION 29
-#define _GNU_SOURCE             /* feature_test_macros(7) éQè∆ */
+#define _GNU_SOURCE             /* feature_test_macros(7) ÂèÇÁÖß */
 
 #include <fuse.h>
 #include <stdio.h>
@@ -38,29 +38,43 @@ SOFTWARE.
 #include <fcntl.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <stddef.h>
+#include <stdlib.h>
 
 
-char __base_path[PATH_MAX] = "/tmp/target";
-FILE *stream = NULL;
-int __epoch_base = 2000;
+struct epochfs_info
+{
+	char *base_path;
+	FILE *stream;
+	char *basepathp;
+	int epoch;
+};
+
+static struct epochfs_info epochfs = {
+	.base_path = "",
+	.stream = NULL,
+	.epoch = 0,
+};
+
 
 /*
- * ã§í èàóù
+ * ÂÖ±ÈÄöÂá¶ÁêÜ
  */
 #define DEBUG_ENABLE
 #ifdef DEBUG_ENABLE
 #define EPOCHFS_DEBUG_LOG(fmt, ...) \
-			do {										\
-				fprintf(stream, "%s: %d:"fmt"\n", __func__, __LINE__, __VA_ARGS__);	\
-				fflush(stream);								\
+			do {							\
+				fprintf(epochfs.stream, "%s: %d:"fmt"\n",	\
+					__func__, __LINE__, __VA_ARGS__);	\
+				fflush(epochfs.stream);				\
 			} while(0)
 
 static void
 EPOCHFS_ERROR_LOG(int _errno)
 {
-	fprintf(stream, "%s: %d: errno=%d (%s)\n",
+	fprintf(epochfs.stream, "%s: %d: errno=%d (%s)\n",
 		__func__, __LINE__, errno, strerror(errno));
-	fflush(stream);
+	fflush(epochfs.stream);
 }
 #else
 #define EPOCHFS_DEBUG_LOG(fmt, ...)
@@ -71,26 +85,59 @@ EPOCHFS_ERROR_LOG(int _errno) {}
 static inline void
 epochfs_mkfullpath(const char *pathname, char *fullpathname)
 {
-	memcpy(fullpathname, __base_path, PATH_MAX);
-	strncat(fullpathname, pathname, PATH_MAX - strlen((const char*)__base_path));
+	memcpy(fullpathname, epochfs.base_path, PATH_MAX);
+	strncat(fullpathname, pathname, PATH_MAX - strlen((const char*)epochfs.base_path));
 	return;
 }
 
 static inline time_t
-epochfs_mkepochtime(time_t time)
+epochfs_epoch_unix2local(time_t time)
 {
-	unsigned long long time_ll = (unsigned long long)time;
-	unsigned long long diff_ll;
+	int year = epochfs.epoch;
+	long long unix_t_ll;
+	long long local_epoch_ll = 0;
+	long long unix_epoch_ll = 0;
+	long long diff_epoch_ll = 0;
 
-	int year = __epoch_base - 1970;
+	local_epoch_ll = ((((year) * 365 ) + ((year) > 0 ? (((year) + 3) / 4
+			- ((year - 1) / 100) + ((year - 1) / 400)) : 0)) * 24 * 3600LL);
+	unix_epoch_ll = ((((1970) * 365 ) + ((1970) > 0 ? (((1970) + 3) / 4
+			- ((1970 - 1) / 100) + ((1970 - 1) / 400)) : 0)) * 24 * 3600LL);
+	diff_epoch_ll = local_epoch_ll - unix_epoch_ll;
 
-	diff_ll = ((((year) * 365 ) + ((year) > 0 ? (((year) + 3) / 4
-			- ((year - 1) / 100) + ((year - 1) / 400)) : 0)) * 24 * 3600);
-	return (time_t)(time_ll + diff_ll);
+	if (sizeof(time_t) < 8) {
+		unix_t_ll = (long long)((unsigned long)time);
+	} else {
+		unix_t_ll = time;
+	}
+	return  (time_t)(unix_t_ll + diff_epoch_ll);
+}
+
+static inline time_t
+epochfs_epoch_local2unix(time_t time)
+{
+	int year = epochfs.epoch;
+	long long unix_t_ll;
+	long long local_epoch_ll = 0;
+	long long unix_epoch_ll = 0;
+	long long diff_epoch_ll = 0;
+
+	local_epoch_ll = ((((year) * 365 ) + ((year) > 0 ? (((year) + 3) / 4
+			- ((year - 1) / 100) + ((year - 1) / 400)) : 0)) * 24 * 3600LL);
+	unix_epoch_ll = ((((1970) * 365 ) + ((1970) > 0 ? (((1970) + 3) / 4
+			- ((1970 - 1) / 100) + ((1970 - 1) / 400)) : 0)) * 24 * 3600LL);
+	diff_epoch_ll = local_epoch_ll - unix_epoch_ll;
+
+	if (sizeof(time_t) < 8) {
+		unix_t_ll = (long long)((unsigned long)time);
+	} else {
+		unix_t_ll = time;
+	}
+	return  (time_t)(unix_t_ll - diff_epoch_ll);
 }
 
 /*
- * filesystemëÄçÏ
+ * filesystemÊìç‰Ωú
  */
 static int
 epochfs_statfs(const char *path, struct statvfs *buf)
@@ -110,7 +157,7 @@ epochfs_statfs(const char *path, struct statvfs *buf)
 }
 
 /*
- * inodeëÄçÏ
+ * inodeÊìç‰Ωú
  */
 static int
 epochfs_getattr(const char *pathname, struct stat *buf)
@@ -126,10 +173,10 @@ epochfs_getattr(const char *pathname, struct stat *buf)
 		return -errno;
 	}
 
-	// epochéûä‘ÇÇ∏ÇÁÇµÇƒâûìöÇ∑ÇÈ
-	buf->st_atime = epochfs_mkepochtime(buf->st_atime);
-	buf->st_mtime = epochfs_mkepochtime(buf->st_mtime);
-	buf->st_ctime = epochfs_mkepochtime(buf->st_ctime);
+	// epochÊôÇÈñì„Çí„Åö„Çâ„Åó„Å¶ÂøúÁ≠î„Åô„Çã
+	buf->st_atime = epochfs_epoch_unix2local(buf->st_atime);
+	buf->st_mtime = epochfs_epoch_unix2local(buf->st_mtime);
+	buf->st_ctime = epochfs_epoch_unix2local(buf->st_ctime);
 	return 0;
 }
 
@@ -334,6 +381,9 @@ epochfs_utime(const char *pathname, struct utimbuf *times)
 
 	EPOCHFS_DEBUG_LOG("pathname=%s", pathname);
 
+	times->actime = epochfs_epoch_local2unix(times->actime);
+	times->modtime = epochfs_epoch_local2unix(times->modtime);
+	
 	rc = utime(fullpathname, times);
 	if (rc < 0) {
 		EPOCHFS_ERROR_LOG(errno);
@@ -428,7 +478,7 @@ epochfs_removexattr(const char *path, const char *name)
 }
 
 /*
- * ÉfÉBÉåÉNÉgÉäëÄçÏ
+ * „Éá„Ç£„É¨„ÇØ„Éà„É™Êìç‰Ωú
  */
 static int
 epochfs_opendir(const char *pathname, struct fuse_file_info *fi)
@@ -482,7 +532,7 @@ epochfs_releasedir(const char *pathname, struct fuse_file_info *fi)
 }
 
 /*
- * ÉtÉ@ÉCÉãëÄçÏ
+ * „Éï„Ç°„Ç§„É´Êìç‰Ωú
  */
 static int
 epochfs_open(const char *pathname, struct fuse_file_info *fi)
@@ -633,10 +683,10 @@ epochfs_fgetattr(const char *pathname, struct stat *buf, struct fuse_file_info *
 		return -errno;
 	}
 
-	// epochéûä‘ÇÇ∏ÇÁÇµÇƒâûìöÇ∑ÇÈ
-	buf->st_atime = epochfs_mkepochtime(buf->st_atime);
-	buf->st_mtime = epochfs_mkepochtime(buf->st_mtime);
-	buf->st_ctime = epochfs_mkepochtime(buf->st_ctime);
+	// epochÊôÇÈñì„Çí„Åö„Çâ„Åó„Å¶ÂøúÁ≠î„Åô„Çã
+	buf->st_atime = epochfs_epoch_unix2local(buf->st_atime);
+	buf->st_mtime = epochfs_epoch_unix2local(buf->st_mtime);
+	buf->st_ctime = epochfs_epoch_unix2local(buf->st_ctime);
 	return 0;
 }
 
@@ -756,18 +806,27 @@ static struct fuse_operations epochfs_ope = {
 //	.write_buf	= ,
 //	.read_buf	= ,
 
-	// getdirÇÕå√Ç¢ÉCÉìÉ^ÉtÉFÅ[ÉXÅB
+	// getdir„ÅØÂè§„ÅÑ„Ç§„É≥„Çø„Éï„Çß„Éº„Çπ„ÄÇ
 	.getdir		= NULL,
-	// fsyncdirÇÕïsóvÅB
+	// fsyncdir„ÅØ‰∏çË¶Å„ÄÇ
 	.fsyncdir	= NULL,
+};
+
+
+#define EPOCHFS_OPT(t, p, v) { t, offsetof(struct epochfs_info, p), v }
+static struct fuse_opt epochfs_opts[] = {
+	EPOCHFS_OPT("base_path=%s",	base_path, 0),
+	EPOCHFS_OPT("epoch=%d",		epoch, 0),
 };
 
 int main(int argc, char *argv[])
 {
+	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+
 #ifdef DEBUG_ENABLE
 	do {
 		int i;
-		stream = fopen("/media/share/epochfs/log.txt", "a");
+		epochfs.stream = fopen("/media/share/epochfs/log.txt", "a");
 		EPOCHFS_DEBUG_LOG("start argc=%d", argc);
 		for (i = 0; i < argc; i++) {
 			EPOCHFS_DEBUG_LOG(" args[%d]=%s", i, argv[i]);
@@ -775,5 +834,24 @@ int main(int argc, char *argv[])
 	} while(0);
 #endif
 
-	return fuse_main(argc, argv, &epochfs_ope, NULL);
+	// „Ç™„Éó„Ç∑„Éß„É≥„ÇíËß£Êûê„Åô„Çã„ÄÇ(epochfs_opts„Å´Âæì„Å£„Å¶„Éë„É©„É°„Éº„ÇøË®≠ÂÆö„ÇíË°å„ÅÜ)
+	fuse_opt_parse(&args, &epochfs, epochfs_opts, NULL);
+	if (strcmp(epochfs.base_path, "") == 0) {
+		EPOCHFS_DEBUG_LOG("ERROR: Missing 'base_path' option.%s", epochfs.base_path);
+		exit(EINVAL);
+	}
+	if (epochfs.epoch == 0) {
+		time_t __t = 0;
+		struct tm __tm;
+		localtime_r(&__t, &__tm);
+		epochfs.epoch = __tm.tm_year + 1900;
+
+		EPOCHFS_DEBUG_LOG("epochfs.epoch is auto settings. epochfs.epoch=%d", epochfs.epoch);
+	}
+
+	EPOCHFS_DEBUG_LOG("epochfs.epoch=%d", epochfs.epoch);
+	EPOCHFS_DEBUG_LOG("epochfs.base_path=%s", epochfs.base_path);
+	return fuse_main(args.argc, args.argv, &epochfs_ope, NULL);
 }
+
+
