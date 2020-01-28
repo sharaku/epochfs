@@ -45,48 +45,66 @@ SOFTWARE.
 struct epochfs_info
 {
 	char *base_path;
-	FILE *stream;
+	FILE *dbglog_stream;
 	char *basepathp;
 	int epoch;
 };
 
 static struct epochfs_info epochfs = {
 	.base_path = "",
-	.stream = NULL,
+	.dbglog_stream = NULL,
 	.epoch = 0,
 };
 
 
-/*
- * 共通処理
- */
-#define DEBUG_ENABLE
-#ifdef DEBUG_ENABLE
-#define EPOCHFS_DEBUG_LOG(fmt, ...) \
-			do {							\
-				fprintf(epochfs.stream, "%s: %d:"fmt"\n",	\
-					__func__, __LINE__, __VA_ARGS__);	\
-				fflush(epochfs.stream);				\
-			} while(0)
+/* ---------------------------------------------------------------------
+ * デバッグログ
+ * --------------------------------------------------------------------- */
 
-static void
-EPOCHFS_ERROR_LOG(int _errno)
+#ifdef DEBUGFILE_PATH
+#define EPOCHFS_DEBUG_LOG(fmt, ...) \
+	do {								\
+		fprintf(epochfs.dbglog_stream, "%s: %d:"fmt"\n",	\
+			__func__, __LINE__, __VA_ARGS__);		\
+		fflush(epochfs.dbglog_stream);				\
+	} while(0)
+
+#define EPOCHFS_ERRNO_LOG(_errno) \
+	do {								\
+		fprintf(epochfs.dbglog_stream, "%s: %d: errno=%d (%s)\n",\
+			__func__, __LINE__, errno, strerror(errno));	\
+		fflush(epochfs.dbglog_stream);				\
+	} while(0)
+
+int
+epochfs_dbg_init(void)
 {
-	fprintf(epochfs.stream, "%s: %d: errno=%d (%s)\n",
-		__func__, __LINE__, errno, strerror(errno));
-	fflush(epochfs.stream);
+	int i;
+	epochfs.dbglog_stream = fopen(DEBUGFILE_PATH, "a");
+	return 0;
 }
 #else
 #define EPOCHFS_DEBUG_LOG(fmt, ...)
-static void
-EPOCHFS_ERROR_LOG(int _errno) {}
+#define EPOCHFS_ERRNO_LOG(_errno)
+int
+epochfs_dbg_init(void)
+{
+	return 0;
+}
+
 #endif
+
+
+/* ---------------------------------------------------------------------
+ * 共通処理
+ * --------------------------------------------------------------------- */
 
 static inline void
 epochfs_mkfullpath(const char *pathname, char *fullpathname)
 {
 	memcpy(fullpathname, epochfs.base_path, PATH_MAX);
-	strncat(fullpathname, pathname, PATH_MAX - strlen((const char*)epochfs.base_path));
+	strncat(fullpathname, pathname,
+		PATH_MAX - strlen((const char*)epochfs.base_path));
 	return;
 }
 
@@ -136,9 +154,9 @@ epochfs_epoch_local2unix(time_t time)
 	return  (time_t)(unix_t_ll - diff_epoch_ll);
 }
 
-/*
+/* ---------------------------------------------------------------------
  * filesystem操作
- */
+ * --------------------------------------------------------------------- */
 static int
 epochfs_statfs(const char *path, struct statvfs *buf)
 {
@@ -150,15 +168,15 @@ epochfs_statfs(const char *path, struct statvfs *buf)
 
 	rc = statvfs(path, buf);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
 }
 
-/*
+/* ---------------------------------------------------------------------
  * inode操作
- */
+ * --------------------------------------------------------------------- */
 static int
 epochfs_getattr(const char *pathname, struct stat *buf)
 {
@@ -191,7 +209,7 @@ epochfs_symlink(const char *target, const char *linkpath)
 
 	rc = symlink(target, fulllinkpath);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -208,7 +226,7 @@ epochfs_readlink(const char *pathname, char *buf, size_t bufsiz)
 
 	rc = readlink(fullpathname, buf, bufsiz);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -225,7 +243,7 @@ epochfs_mknod(const char *pathname, mode_t mode, dev_t dev)
 
 	rc = mknod(fullpathname, mode, dev);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -242,7 +260,7 @@ epochfs_mkdir(const char *pathname, mode_t mode)
 
 	rc = mkdir(fullpathname, mode);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -259,7 +277,7 @@ epochfs_unlink(const char *pathname)
 
 	rc = unlink(fullpathname);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -276,7 +294,7 @@ epochfs_rmdir(const char *pathname)
 
 	rc = rmdir(fullpathname);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -296,7 +314,7 @@ epochfs_rename(const char *oldpath, const char *newpath)
 
 	rc = rename(fulloldpath, fullnewpath);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -315,7 +333,7 @@ epochfs_link(const char *oldpath, const char *newpath)
 
 	rc = link(fulloldpath, fullnewpath);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -332,7 +350,7 @@ epochfs_chmod(const char *pathname, mode_t mode)
 
 	rc = chmod(fullpathname, mode);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -349,7 +367,7 @@ epochfs_chown(const char *pathname, uid_t owner, gid_t group)
 
 	rc = chown(fullpathname, owner, group);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -366,7 +384,7 @@ epochfs_truncate(const char *pathname, off_t length)
 
 	rc = truncate(fullpathname, length);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -386,7 +404,7 @@ epochfs_utime(const char *pathname, struct utimbuf *times)
 	
 	rc = utime(fullpathname, times);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -403,24 +421,26 @@ epochfs_access(const char *pathname, int mode)
 
 	rc = access(fullpathname, mode);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
 }
 
 static int
-epochfs_setxattr(const char *path, const char *name, const char *value, size_t size, int flags)
+epochfs_setxattr(const char *path, const char *name, const char *value,
+		 size_t size, int flags)
 {
 	int rc;
 	char fullpath[PATH_MAX];
 	epochfs_mkfullpath(path, fullpath);
 
-	EPOCHFS_DEBUG_LOG("path=%s name=%s value=%s size=%ld flags=%d", path, name, value, size, flags);
+	EPOCHFS_DEBUG_LOG("path=%s name=%s value=%s size=%ld flags=%d",
+			  path, name, value, size, flags);
 
 	rc = lsetxattr(fullpath, name, value, size, flags);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -433,11 +453,12 @@ epochfs_getxattr(const char *path, const char *name, char *value, size_t size)
 	char fullpath[PATH_MAX];
 	epochfs_mkfullpath(path, fullpath);
 
-	EPOCHFS_DEBUG_LOG("path=%s name=%s value=%s size=%ld", path, name, value, size);
+	EPOCHFS_DEBUG_LOG("path=%s name=%s value=%s size=%ld",
+			  path, name, value, size);
 
 	rc = lgetxattr(fullpath, name, value, size);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -454,7 +475,7 @@ epochfs_listxattr(const char *path, char *list, size_t size)
 
 	rc = llistxattr(fullpath, list, size);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -471,15 +492,15 @@ epochfs_removexattr(const char *path, const char *name)
 
 	rc = lremovexattr(fullpath, name);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
 }
 
-/*
+/* ---------------------------------------------------------------------
  * ディレクトリ操作
- */
+ * --------------------------------------------------------------------- */
 static int
 epochfs_opendir(const char *pathname, struct fuse_file_info *fi)
 {
@@ -491,7 +512,7 @@ epochfs_opendir(const char *pathname, struct fuse_file_info *fi)
 
 	dirp = opendir(fullpathname);
 	if (dirp == NULL) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	fi->fh = (unsigned long)dirp;
@@ -508,7 +529,9 @@ epochfs_readdir(const char *pathname, void *buf, fuse_fill_dir_t filler,
 
 	EPOCHFS_DEBUG_LOG("pathname=%s", pathname);
 
-	for (ret = 0, dirent = readdir(dirp); dirent != NULL && ret == 0; dirent = readdir(dirp)) {
+	for (ret = 0, dirent = readdir(dirp);
+	     dirent != NULL && ret == 0;
+	     dirent = readdir(dirp)) {
 		ret = filler(buf, dirent->d_name, NULL, 0);
 	}
 
@@ -525,15 +548,15 @@ epochfs_releasedir(const char *pathname, struct fuse_file_info *fi)
 
 	rc = closedir(dirp);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
 }
 
-/*
+/* ---------------------------------------------------------------------
  * ファイル操作
- */
+ * --------------------------------------------------------------------- */
 static int
 epochfs_open(const char *pathname, struct fuse_file_info *fi)
 {
@@ -545,7 +568,7 @@ epochfs_open(const char *pathname, struct fuse_file_info *fi)
 
 	fd = open(fullpathname, fi->flags);
 	if (fd < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	fi->fh = (unsigned long)fd;
@@ -565,7 +588,7 @@ epochfs_create(const char *pathname, mode_t mode, struct fuse_file_info *fi)
 
 	fd = creat(fullpathname, mode);
 	if (fd < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	fi->fh = (unsigned long)fd;
@@ -585,7 +608,7 @@ epochfs_read(const char *pathname, char *buf, size_t count, off_t offset,
 
 	ret = pread(fd, (void*)buf, count, offset);
 	if (ret < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return ret;
@@ -602,7 +625,7 @@ epochfs_write(const char *pathname, const char *buf, size_t count, off_t offset,
 
 	ret = pwrite(fd, (void*)buf, count, offset);
 	if (ret < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return ret;
@@ -614,18 +637,19 @@ epochfs_fsync(const char *pathname, int datasync, struct fuse_file_info *fi)
 	int fd = (int)fi->fh;
 	int rc;
 
-	EPOCHFS_DEBUG_LOG("pathname=%s fd=%d datasync=%d", pathname, fd, datasync);
+	EPOCHFS_DEBUG_LOG("pathname=%s fd=%d datasync=%d",
+			  pathname, fd, datasync);
 
 	if (datasync) {
 		rc = fdatasync(fd);
 		if (rc < 0) {
-			EPOCHFS_ERROR_LOG(errno);
+			EPOCHFS_ERRNO_LOG(errno);
 			return -errno;
 		}
 	} else {
 		rc = fsync(fd);
 		if (rc < 0) {
-			EPOCHFS_ERROR_LOG(errno);
+			EPOCHFS_ERRNO_LOG(errno);
 			return -errno;
 		}
 	}
@@ -642,19 +666,20 @@ epochfs_flush(const char *pathname, struct fuse_file_info *fi)
 
 	rc = fdatasync(fd);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	rc = fsync(fd);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
 }
 
 static int
-epochfs_ftruncate(const char *pathname, off_t length, struct fuse_file_info *fi)
+epochfs_ftruncate(const char *pathname, off_t length,
+		  struct fuse_file_info *fi)
 {
 	int fd = (int)fi->fh;
 	int rc;
@@ -663,14 +688,15 @@ epochfs_ftruncate(const char *pathname, off_t length, struct fuse_file_info *fi)
 
 	rc = ftruncate(fd, length);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
 }
 
 static int
-epochfs_fgetattr(const char *pathname, struct stat *buf, struct fuse_file_info *fi)
+epochfs_fgetattr(const char *pathname, struct stat *buf,
+		 struct fuse_file_info *fi)
 {
 	int fd = (int)fi->fh;
 	int rc;
@@ -679,7 +705,7 @@ epochfs_fgetattr(const char *pathname, struct stat *buf, struct fuse_file_info *
 
 	rc = fstat(fd, buf);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 
@@ -700,39 +726,43 @@ epochfs_flock(const char *pathname, struct fuse_file_info *fi, int op)
 
 	rc = flock(fd, op);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
 }
 
 static int
-epochfs_fallocate(const char *pathname, int mode, off_t offset, off_t len, struct fuse_file_info *fi)
+epochfs_fallocate(const char *pathname, int mode, off_t offset, off_t len,
+		  struct fuse_file_info *fi)
 {
 	int fd = (int)fi->fh;
 	int rc;
 
-	EPOCHFS_DEBUG_LOG("pathname=%s fd=%d mode=%d offset=%ld len=%ld", pathname, fd, mode, offset, len);
+	EPOCHFS_DEBUG_LOG("pathname=%s fd=%d mode=%d offset=%ld len=%ld",
+			  pathname, fd, mode, offset, len);
 
 	rc = fallocate(fd, mode, offset, len);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
 }
 
 static int
-epochfs_lock(const char *pathname, struct fuse_file_info *fi, int cmd, struct flock *fl)
+epochfs_lock(const char *pathname, struct fuse_file_info *fi, int cmd,
+	     struct flock *fl)
 {
 	int fd = (int)fi->fh;
 	int rc;
 
-	EPOCHFS_DEBUG_LOG("pathname=%s fd=%d cmd=%d fl=%p", pathname, fd, cmd, fl);
+	EPOCHFS_DEBUG_LOG("pathname=%s fd=%d cmd=%d fl=%p",
+			  pathname, fd, cmd, fl);
 
 	rc = fcntl(fd, cmd, fl);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	return 0;
@@ -748,7 +778,7 @@ epochfs_release(const char *pathname, struct fuse_file_info *fi)
 
 	rc = close(fd);
 	if (rc < 0) {
-		EPOCHFS_ERROR_LOG(errno);
+		EPOCHFS_ERRNO_LOG(errno);
 		return -errno;
 	}
 	fi->fh = (unsigned long)-1;
@@ -812,6 +842,11 @@ static struct fuse_operations epochfs_ope = {
 	.fsyncdir	= NULL,
 };
 
+int
+epochfs_init(void)
+{
+	return epochfs_dbg_init();
+}
 
 #define EPOCHFS_OPT(t, p, v) { t, offsetof(struct epochfs_info, p), v }
 static struct fuse_opt epochfs_opts[] = {
@@ -822,21 +857,18 @@ static struct fuse_opt epochfs_opts[] = {
 int main(int argc, char *argv[])
 {
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+	int rc;
 
-#ifdef DEBUG_ENABLE
-	do {
-		int i;
-		epochfs.stream = fopen("/media/share/epochfs/log.txt", "a");
-		EPOCHFS_DEBUG_LOG("start argc=%d", argc);
-		for (i = 0; i < argc; i++) {
-			EPOCHFS_DEBUG_LOG(" args[%d]=%s", i, argv[i]);
-		}
-	} while(0);
-#endif
+	rc = epochfs_init();
+	if (rc < 0) {
+		fprintf(stderr,"initialize failed.\n");
+		return 1;
+	}
 
 	// オプションを解析する。(epochfs_optsに従ってパラメータ設定を行う)
 	fuse_opt_parse(&args, &epochfs, epochfs_opts, NULL);
 	if (strcmp(epochfs.base_path, "") == 0) {
+		fprintf(stderr,"ERROR: Missing 'base_path' option.\n");
 		EPOCHFS_DEBUG_LOG("ERROR: Missing 'base_path' option.%s", epochfs.base_path);
 		exit(EINVAL);
 	}

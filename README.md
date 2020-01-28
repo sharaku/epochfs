@@ -41,7 +41,6 @@ gcc -Wall epochfs.c `pkg-config fuse --cflags --libs` -o epochfs
 ```
 epochfs -o{options...} mountpoint
 
-base_dir          オーバーレイのベースとなるディレクトリ
 mountpoint        マウントポイント
 -o{options...}    マウントオプション
 
